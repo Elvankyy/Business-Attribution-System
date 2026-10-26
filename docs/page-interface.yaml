@@ -1,0 +1,370 @@
+version: 1
+project: 经营归因分析系统
+generated_on: "2026-10-24"
+notes:
+  - 事实来源：后端 OpenAPI 与前端 src/api 实际调用
+  - "status: matched=前后端一致；extension=实现新增（PRD 未列）；frontend_pending=后端已就绪、前端待接入；missing=后端缺失"
+
+pages:
+  - id: login
+    name: 授权登录入口页
+    route: /login
+    component: frontend/src/pages/LoginPage.vue
+    actions:
+      - name: 登录
+        kind: redirect
+        method: GET
+        path: /auth/login
+        request: {}
+        response: ["302 到认证中心"]
+        errors: []
+        status: matched
+        frontend: "api/client.js loginUrl()"
+      - name: 管理员登录
+        kind: redirect
+        method: GET
+        path: /auth/login
+        request: { as_admin: "true" }
+        response: ["302，state 包含 admin 角色"]
+        errors: []
+        status: extension
+        frontend: "api/client.js loginUrl(true)"
+
+  - id: callback
+    name: 登录回调页
+    route: /auth/callback
+    component: frontend/src/pages/CallbackPage.vue
+    actions:
+      - name: 校验登录态
+        kind: rest
+        method: GET
+        path: /api/me
+        request: {}
+        response: ["id", "external_user_id", "username", "display_name", "role", "status"]
+        errors: ["401"]
+        status: extension
+        frontend: "api/auth.js fetchMe()"
+
+  - id: workspace
+    name: 聊天工作台页
+    route: "/workspace/:conversationId?"
+    component: frontend/src/pages/WorkspacePage.vue
+    actions:
+      - name: 加载会话列表
+        kind: rest
+        method: GET
+        path: /api/chat/ls
+        request: {}
+        response: ["conversation_id", "title", "status", "last_message_at"]
+        errors: ["401"]
+        status: matched
+        frontend: "api/workspace.js listConversations()"
+      - name: 新建会话
+        kind: rest
+        method: POST
+        path: /api/chat/create
+        request: { title: "string" }
+        response: ["conversation_id", "title", "status"]
+        errors: ["401", "422"]
+        status: matched
+        frontend: "api/workspace.js createConversation()"
+      - name: 加载历史消息
+        kind: rest
+        method: GET
+        path: "/api/chat/ls/{conversation_id}"
+        request: { conversation_id: "path" }
+        response: ["message_id", "role", "message_type", "content", "tool_name", "tool_status", "attachments", "created_at"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/workspace.js listMessages()"
+      - name: 加载附件列表
+        kind: rest
+        method: GET
+        path: /api/attachment/ls
+        request: { conversation_id: "query" }
+        response: ["attachment_id", "file_name", "file_type", "file_size", "parse_status", "created_at"]
+        errors: ["401", "404"]
+        status: extension
+        frontend: "api/workspace.js listAttachments()"
+      - name: 重命名会话
+        kind: rest
+        method: POST
+        path: /api/chat/update
+        request: { conversation_id: "string", title: "string" }
+        response: ["conversation_id", "title", "status"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/workspace.js renameConversation()"
+      - name: 删除会话
+        kind: rest
+        method: POST
+        path: /api/chat/delete
+        request: { conversation_ids: "string[]" }
+        response: ["deleted"]
+        errors: ["401"]
+        status: matched
+        frontend: "api/workspace.js deleteConversations()"
+      - name: 申请 WebSocket token
+        kind: rest
+        method: POST
+        path: /api/chat/ws-token
+        request: { conversation_id: "string" }
+        response: ["websocket_token", "expires_in"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/analysis.js issueWsToken()"
+      - name: 建立实时连接
+        kind: websocket
+        path: /api/chat/ws/chat
+        request: { websocket_token: "query", conversation_id: "query" }
+        response: ["connected 事件", "8 种分析事件"]
+        errors: ["1008 策略关闭"]
+        status: matched
+        frontend: "composables/useRealtime.js"
+      - name: 发送分析问题
+        kind: websocket_message
+        path: /api/chat/ws/chat
+        request: { type: "user_message", content: "string" }
+        response: ["message_start", "task_status", "tool_start", "tool_finish", "message_delta", "result_ready", "error", "done"]
+        errors: ["已有运行中任务"]
+        status: matched
+        frontend: "pages/WorkspacePage.vue sendMessage()"
+      - name: 停止分析
+        kind: rest
+        method: POST
+        path: "/api/tasks/{task_id}/cancel"
+        request: { task_id: "path" }
+        response: ["task_id", "task_status", "current_step", "started_at", "finished_at", "error_message"]
+        errors: ["401", "404"]
+        status: extension
+        frontend: "api/analysis.js cancelTask()"
+      - name: 刷新恢复任务状态
+        kind: rest
+        method: GET
+        path: "/api/tasks/{task_id}"
+        request: { task_id: "path" }
+        response: ["task_id", "task_status", "current_step", "started_at", "finished_at", "error_message"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/analysis.js getTask()"
+      - name: 历史任务列表
+        kind: rest
+        method: GET
+        path: /api/tasks
+        request: { conversation_id: "query" }
+        response: ["task_id", "task_status", "current_step", "input_text", "started_at", "finished_at", "error_message", "result_id"]
+        errors: ["401", "404"]
+        status: extension
+        frontend: "api/analysis.js listTasks()"
+      - name: 历史任务日志
+        kind: rest
+        method: GET
+        path: "/api/tasks/{task_id}/logs"
+        request: { task_id: "path" }
+        response: ["log_level", "log_type", "log_content", "created_at"]
+        errors: ["401", "404"]
+        status: extension
+        frontend: "api/analysis.js getTaskLogs()"
+      - name: 查看分析结果
+        kind: rest
+        method: GET
+        path: "/api/results/{task_id}"
+        request: { task_id: "path" }
+        response: ["problem_definition", "key_metrics", "evidence_list", "conclusion_text", "missing_data_text", "next_action_text"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/analysis.js getResult()"
+      - name: 下载结果文件
+        kind: rest
+        method: GET
+        path: "/api/results/{task_id}/file"
+        request: { task_id: "path" }
+        response: ["Markdown 文件流"]
+        errors: ["401", "404"]
+        status: extension
+        frontend: "api/analysis.js downloadResult()"
+      - name: 上传附件
+        kind: rest
+        method: POST
+        path: /api/attachment/upload
+        request: { conversation_id: "form", file: "file" }
+        response: ["attachment_id", "file_name", "file_path"]
+        errors: ["400 文件过大", "401", "404"]
+        status: matched
+        frontend: "api/workspace.js uploadAttachment()"
+      - name: 删除附件
+        kind: rest
+        method: POST
+        path: /api/attachment/delete
+        request: { attachment_id: "string" }
+        response: ["deleted"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/workspace.js deleteAttachment()"
+      - name: 下载附件
+        kind: rest
+        method: GET
+        path: /api/attachment/get
+        request: { attachment_id: "query" }
+        response: ["文件流", "content-disposition"]
+        errors: ["401", "404"]
+        status: matched
+        frontend: "api/workspace.js downloadAttachment()"
+      - name: 复制全部结果
+        kind: frontend
+        method: null
+        path: null
+        request: {}
+        response: []
+        errors: []
+        status: matched
+        frontend: "components/ResultPanel.vue copyAll()"
+      - name: 退出登录
+        kind: frontend
+        method: null
+        path: null
+        request: {}
+        response: []
+        errors: []
+        status: matched
+        frontend: "composables/useAuth.js logout()"
+
+  - id: admin
+    name: 系统管理页
+    route: /admin
+    component: frontend/src/pages/AdminPage.vue
+    actions:
+      - name: 加载系统配置
+        kind: rest
+        method: GET
+        path: /api/admin/configs
+        request: {}
+        response: ["config_key", "config_value", "config_group", "updated_at"]
+        errors: ["401", "403"]
+        status: extension
+        frontend: "api/admin.js getConfigs()"
+      - name: 加载任务日志
+        kind: rest
+        method: GET
+        path: /api/admin/logs
+        request: { limit: "query", task_id: "optional query" }
+        response: ["task_id", "log_level", "log_type", "log_content", "created_at"]
+        errors: ["401", "403"]
+        status: extension
+        frontend: "api/admin.js getLogs()"
+      - name: 加载任务记录
+        kind: rest
+        method: GET
+        path: /api/admin/tasks
+        request: { limit: "query" }
+        response: ["task_id", "conversation_id", "conversation_title", "user_id", "username", "display_name", "task_status", "current_step", "input_text", "started_at", "finished_at", "error_message", "result_id"]
+        errors: ["401", "403"]
+        status: extension
+        frontend: "api/admin.js getTasks()"
+      - name: 重载系统配置
+        kind: rest
+        method: POST
+        path: /api/admin/reload
+        request: {}
+        response: ["status", "message"]
+        errors: ["401", "403"]
+        status: matched
+        frontend: "api/admin.js reloadConfigs()"
+      - name: 数据源 Tab
+        kind: frontend
+        method: null
+        path: null
+        request: {}
+        response: ["按 config_group=data_source 本地过滤"]
+        errors: []
+        status: matched
+        frontend: "pages/AdminPage.vue displayedConfigs"
+      - name: 功能开关 Tab
+        kind: frontend
+        method: null
+        path: null
+        request: {}
+        response: ["按 config_group=feature 本地过滤"]
+        errors: []
+        status: matched
+        frontend: "pages/AdminPage.vue displayedConfigs"
+
+websocket:
+  endpoint: /api/chat/ws/chat
+  events:
+    - type: message_start
+      fields: ["task_id", "conversation_id"]
+      consumer: WorkspacePage
+      status: matched
+    - type: message_delta
+      fields: ["task_id", "delta_text"]
+      consumer: WorkspacePage
+      status: matched
+    - type: tool_start
+      fields: ["task_id", "tool_name"]
+      consumer: WorkspacePage
+      status: matched
+    - type: tool_finish
+      fields: ["task_id", "tool_name", "tool_result_summary"]
+      consumer: WorkspacePage
+      status: matched
+    - type: task_status
+      fields: ["task_id", "task_status", "current_step"]
+      consumer: WorkspacePage
+      status: matched
+    - type: result_ready
+      fields: ["task_id", "result_id"]
+      consumer: WorkspacePage
+      status: matched
+    - type: error
+      fields: ["task_id", "error_message"]
+      consumer: WorkspacePage
+      status: matched
+    - type: done
+      fields: ["task_id", "finished_at"]
+      consumer: WorkspacePage
+      status: matched
+    - type: connected
+      fields: ["conversation_id"]
+      consumer: "未处理"
+      status: extension
+    - type: pong
+      fields: []
+      consumer: "未处理"
+      status: extension
+  client_messages:
+    - type: user_message
+      fields: ["content"]
+      producer: WorkspacePage
+      status: matched
+    - type: cancel
+      fields: ["task_id"]
+      producer: "未使用（前端走 REST cancel）"
+      status: extension
+    - type: ping
+      fields: []
+      producer: "未使用"
+      status: extension
+
+backend_notes:
+  - id: assistant-persistence
+    description: 分析成功后保存 role=assistant、message_type=analysis 的结论消息，刷新历史不会再丢失回答
+    status: matched
+  - id: task-list
+    description: GET /api/tasks?conversation_id= 返回任务摘要与 result_id
+    status: matched
+  - id: task-logs
+    description: GET /api/tasks/{task_id}/logs 返回工具执行日志
+    status: matched
+  - id: result-schema
+    description: ResultResponse.key_metrics/evidence_list 已改为强类型 KeyMetric/Evidence
+    status: matched
+  - id: config-seed
+    description: scripts/seed_configs.py 写入 data_source/feature 演示配置
+    status: matched
+  - id: admin-tasks
+    description: GET /api/admin/tasks 返回跨会话任务记录（会话、用户、状态、输入、result_id）
+    status: matched
+
+frontend_todos:
+  - 浏览器逐页验收：登录、工作台、历史任务、管理端
